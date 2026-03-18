@@ -110,6 +110,8 @@ After ANY close: check wallet for base tokens and swap ALL to SOL immediately.
   } else {
     basePrompt += `
 Handle the user's request using your available tools. Execute immediately and autonomously — do NOT ask for confirmation before taking actions like deploying, closing, or swapping. The user's instruction IS the confirmation.
+
+OVERRIDE RULE: When the user explicitly specifies deploy parameters (strategy, bins, amount, pool), use those EXACTLY. Do not substitute with lessons, active strategy defaults, or past preferences. Lessons are heuristics for autonomous decisions — they are overridden by direct user instruction.
 `;
   }
 
