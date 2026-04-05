@@ -4,9 +4,9 @@ This repository now includes an initial Next.js control plane scaffold while pre
 
 ## What was added
 
-- Next.js App Router pages under `/home/runner/work/meridian/meridian/app`
+- Next.js App Router pages under `app/`
 - API routes for dashboard, candidates, config, cycles, actions, lessons, logs, pool memory, blacklist, jobs, events
-- Runtime web service extraction under `/home/runner/work/meridian/meridian/runtime`
+- Runtime web service extraction under `runtime/`
 - Simple token-based role auth for API routes (`WEB_READ_TOKEN`, `WEB_WRITE_TOKEN`, `WEB_ADMIN_TOKEN`)
 - Job locks/status/events to avoid duplicate runs in web-triggered cycles
 

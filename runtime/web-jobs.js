@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
+
 const jobs = new Map();
 const events = [];
 const MAX_EVENTS = 200;
 
 function pushEvent(type, payload = {}) {
-  events.push({ id: crypto.randomUUID(), ts: new Date().toISOString(), type, ...payload });
+  events.push({ id: randomUUID(), ts: new Date().toISOString(), type, ...payload });
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
 }
 
