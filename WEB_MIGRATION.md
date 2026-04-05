@@ -2,9 +2,9 @@
 
 This repository now includes an initial Next.js control plane scaffold while preserving existing CLI and autonomous runtime behavior.
 
-## What was added
+Paths below are relative to the repository root.
 
-- Paths below are relative to the repository root.
+## What was added
 - Next.js App Router pages under `app/`
 - API routes for dashboard, candidates, config, cycles, actions, lessons, logs, pool memory, blacklist, jobs, events
 - Runtime web service extraction under `runtime/`
