@@ -161,7 +161,7 @@ Two signals used in `getTokenHolders()`:
 - `common_funder` — multiple wallets funded by same source
 - `funded_same_window` — multiple wallets funded in same time window
 
-**Thresholds in config**: `maxBundlersPct` (default 30%), `maxTop10Pct` (default 60%)
+**Thresholds in config**: `maxBundlePct` (default 30%), `maxBotHoldersPct` (default 30%), `maxTop10Pct` (default 60%)
 Jupiter audit API: `botHoldersPercentage` (5–25% is normal for legitimate tokens)
 
 ---
