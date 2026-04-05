@@ -19,7 +19,7 @@ import {
   syncOpenPositions,
 } from "../state.js";
 import { recordPerformance } from "../lessons.js";
-import { isPoolOnCooldown } from "../pool-memory.js";
+import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
 
 // ─── Lazy SDK loader ───────────────────────────────────────────
@@ -115,8 +115,8 @@ export async function deployPosition({
   const activeBinsAbove = bins_above ?? 0;
 
   if (isPoolOnCooldown(pool_address)) {
-    log("deploy", `Pool ${pool_address.slice(0, 8)} is on cooldown (closed for low yield) — skipping`);
-    return { success: false, error: "Pool on cooldown — was recently closed for low yield. Try a different pool." };
+    log("deploy", `Pool ${pool_address.slice(0, 8)} is on cooldown — skipping`);
+    return { success: false, error: "Pool on cooldown — was recently closed with a cooldown reason. Try a different pool." };
   }
 
   if (process.env.DRY_RUN === "true") {
@@ -139,6 +139,11 @@ export async function deployPosition({
   const { StrategyType } = await getDLMM();
   const wallet = getWallet();
   const pool = await getPool(pool_address);
+  const baseMint = pool.lbPair.tokenXMint.toString();
+  if (isBaseMintOnCooldown(baseMint)) {
+    log("deploy", `Base mint ${baseMint.slice(0, 8)} is on cooldown — skipping deploy for pool ${pool_address.slice(0, 8)}`);
+    return { success: false, error: "Token on cooldown — recently closed out-of-range too many times. Try a different token." };
+  }
   const activeBin = await pool.getActiveBin();
 
   // Range calculation
@@ -347,6 +352,36 @@ export async function getPositionPnl({ pool_address, position_address }) {
   }
 }
 
+function safeNum(value) {
+  const n = parseFloat(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function deriveOpenPnlPct(binData, solMode = false) {
+  if (!binData) return null;
+
+  const deposit = solMode
+    ? safeNum(binData.allTimeDeposits?.total?.sol)
+    : safeNum(binData.allTimeDeposits?.total?.usd);
+  if (deposit <= 0) return null;
+
+  const balances = solMode
+    ? safeNum(binData.unrealizedPnl?.balancesSol)
+    : safeNum(binData.unrealizedPnl?.balances);
+  const unclaimedFees = solMode
+    ? safeNum(binData.unrealizedPnl?.unclaimedFeeTokenX?.amountSol) + safeNum(binData.unrealizedPnl?.unclaimedFeeTokenY?.amountSol)
+    : safeNum(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd) + safeNum(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd);
+  const withdrawals = solMode
+    ? safeNum(binData.allTimeWithdrawals?.total?.sol)
+    : safeNum(binData.allTimeWithdrawals?.total?.usd);
+  const fees = solMode
+    ? safeNum(binData.allTimeFees?.total?.sol)
+    : safeNum(binData.allTimeFees?.total?.usd);
+
+  const pnl = balances + unclaimedFees + withdrawals + fees - deposit;
+  return (pnl / deposit) * 100;
+}
+
 // ─── Get My Positions ──────────────────────────────────────────
 export async function getMyPositions({ force = false, silent = false } = {}) {
   if (!force && _positionsCache && Date.now() - _positionsCacheAt < POSITIONS_CACHE_TTL) {
@@ -389,6 +424,9 @@ export async function getMyPositions({ force = false, silent = false } = {}) {
 
         // Bin data: from supplemental PnL call (OOR) or tracked state (in-range)
         const binData = binDataByPool[pool.poolAddress]?.[positionAddress];
+        if (!binData) {
+          log("positions_warn", `PnL API missing data for ${positionAddress.slice(0, 8)} in pool ${pool.poolAddress.slice(0, 8)} — using portfolio only for open-position discovery`);
+        }
         const lowerBin  = binData?.lowerBinId      ?? tracked?.bin_range?.min ?? null;
         const upperBin  = binData?.upperBinId      ?? tracked?.bin_range?.max ?? null;
         const activeBin = binData?.poolActiveBinId ?? tracked?.bin_range?.active ?? null;
@@ -396,6 +434,17 @@ export async function getMyPositions({ force = false, silent = false } = {}) {
         const ageFromState = tracked?.deployed_at
           ? Math.floor((Date.now() - new Date(tracked.deployed_at).getTime()) / 60000)
           : null;
+        const reportedPnlPct = binData
+          ? parseFloat(config.management.solMode ? (binData.pnlSolPctChange || 0) : (binData.pnlPctChange || 0))
+          : null;
+        const derivedPnlPct = binData ? deriveOpenPnlPct(binData, config.management.solMode) : null;
+        const pnlPctDiff = reportedPnlPct != null && derivedPnlPct != null
+          ? Math.abs(reportedPnlPct - derivedPnlPct)
+          : null;
+        const pnlPctSuspicious = pnlPctDiff != null && pnlPctDiff > (config.management.pnlSanityMaxDiffPct ?? 5);
+        if (pnlPctSuspicious) {
+          log("positions_warn", `Suspicious pnl_pct for ${positionAddress.slice(0, 8)}: reported=${reportedPnlPct.toFixed(2)} derived=${derivedPnlPct.toFixed(2)} diff=${pnlPctDiff.toFixed(2)}`);
+        }
 
         positions.push({
           position:           positionAddress,
@@ -405,34 +454,49 @@ export async function getMyPositions({ force = false, silent = false } = {}) {
           lower_bin:          lowerBin,
           upper_bin:          upperBin,
           active_bin:         activeBin,
-          in_range:           !isOOR,
-          unclaimed_fees_usd: Math.round((binData
-            ? config.management.solMode
-              ? parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.amountSol || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.amountSol || 0)
-              : parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)
-            : parseFloat(config.management.solMode ? (pool.unclaimedFeesSol || 0) : (pool.unclaimedFees || 0))) * 10000) / 10000,
-          total_value_usd:    Math.round((binData
-            ? config.management.solMode
-              ? parseFloat(binData.unrealizedPnl?.balancesSol || 0)
-              : parseFloat(binData.unrealizedPnl?.balances || 0)
-            : parseFloat(config.management.solMode ? (pool.balancesSol || 0) : (pool.balances || 0))) * 10000) / 10000,
+          in_range:           binData ? !binData.isOutOfRange : !isOOR,
+          unclaimed_fees_usd: binData
+            ? Math.round((
+                config.management.solMode
+                  ? parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.amountSol || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.amountSol || 0)
+                  : parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)
+              ) * 10000) / 10000
+            : null,
+          total_value_usd:    binData
+            ? Math.round((
+                config.management.solMode
+                  ? parseFloat(binData.unrealizedPnl?.balancesSol || 0)
+                  : parseFloat(binData.unrealizedPnl?.balances || 0)
+              ) * 10000) / 10000
+            : null,
           // Always-USD fields for internal accounting and lesson recording.
-          total_value_true_usd: Math.round((binData
-            ? parseFloat(binData.unrealizedPnl?.balances || 0)
-            : parseFloat(pool.balances || 0)) * 10000) / 10000,
-          collected_fees_usd: Math.round(parseFloat(config.management.solMode ? (binData?.allTimeFees?.total?.sol || 0) : (binData?.allTimeFees?.total?.usd || 0)) * 10000) / 10000,
-          collected_fees_true_usd: Math.round(parseFloat(binData?.allTimeFees?.total?.usd || 0) * 10000) / 10000,
-          pnl_usd:            Math.round(parseFloat(binData
-            ? config.management.solMode ? (binData.pnlSol || 0) : (binData.pnlUsd || 0)
-            : config.management.solMode ? (pool.pnlSol || 0) : (pool.pnl || 0)) * 10000) / 10000,
-          pnl_true_usd:       Math.round(parseFloat(binData?.pnlUsd || 0) * 10000) / 10000,
-          pnl_pct:            Math.round(parseFloat(binData
-            ? config.management.solMode ? (binData.pnlSolPctChange || 0) : (binData.pnlPctChange || 0)
-            : config.management.solMode ? (pool.pnlSolPctChange || 0) : (pool.pnlPctChange || 0)) * 100) / 100,
-          unclaimed_fees_true_usd: Math.round((binData
-            ? parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)
-            : parseFloat(pool.unclaimedFees || 0)) * 10000) / 10000,
-          fee_per_tvl_24h:    Math.round(parseFloat(binData?.feePerTvl24h || pool.feePerTvl24h || 0) * 100) / 100,
+          total_value_true_usd: binData
+            ? Math.round(parseFloat(binData.unrealizedPnl?.balances || 0) * 10000) / 10000
+            : null,
+          collected_fees_usd: binData
+            ? Math.round(parseFloat(config.management.solMode ? (binData.allTimeFees?.total?.sol || 0) : (binData.allTimeFees?.total?.usd || 0)) * 10000) / 10000
+            : null,
+          collected_fees_true_usd: binData
+            ? Math.round(parseFloat(binData.allTimeFees?.total?.usd || 0) * 10000) / 10000
+            : null,
+          pnl_usd:            binData
+            ? Math.round(parseFloat(config.management.solMode ? (binData.pnlSol || 0) : (binData.pnlUsd || 0)) * 10000) / 10000
+            : null,
+          pnl_true_usd:       binData
+            ? Math.round(parseFloat(binData.pnlUsd || 0) * 10000) / 10000
+            : null,
+          pnl_pct:            binData
+            ? Math.round(reportedPnlPct * 100) / 100
+            : null,
+          pnl_pct_derived:    derivedPnlPct != null ? Math.round(derivedPnlPct * 100) / 100 : null,
+          pnl_pct_diff:       pnlPctDiff != null ? Math.round(pnlPctDiff * 100) / 100 : null,
+          pnl_pct_suspicious: !!pnlPctSuspicious,
+          unclaimed_fees_true_usd: binData
+            ? Math.round((parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(binData.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)) * 10000) / 10000
+            : null,
+          fee_per_tvl_24h:    binData
+            ? Math.round(parseFloat(binData.feePerTvl24h || 0) * 100) / 100
+            : null,
           age_minutes:        binData?.createdAt ? Math.floor((Date.now() - binData.createdAt * 1000) / 60000) : ageFromState,
           minutes_out_of_range: minutesOutOfRange(positionAddress),
           instruction:        tracked?.instruction ?? null,
@@ -651,7 +715,7 @@ export async function closePosition({ position_address, reason }) {
         closeTxHashes.push(txHash);
       }
     } else {
-      log("close", `Step 2: No position liquidity detected, closing account`);
+      log("close", `Step 2: Position is empty, forcing close account`);
       const closeTx = await pool.closePosition({
         owner: wallet.publicKey,
         position: { publicKey: positionPubKey },
