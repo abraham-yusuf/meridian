@@ -103,6 +103,50 @@ On startup Meridian fetches your wallet balance, open positions, and top pool ca
 
 ## Running modes
 
+
+### Next.js web control plane (new)
+
+You can now run an initial web version with authenticated API routes and starter pages.
+
+```bash
+npm run web:dev
+```
+
+Build for production:
+
+```bash
+npm run web:build
+npm run web:start
+```
+
+Set at least one API token in `.env` for authorization:
+
+```env
+WEB_READ_TOKEN=read-token
+WEB_WRITE_TOKEN=write-token
+WEB_ADMIN_TOKEN=admin-token
+```
+
+Use bearer auth on API requests:
+
+```
+Authorization: Bearer <token>
+```
+
+Read endpoints accept read/write/admin tokens. Write endpoints require write/admin tokens.
+
+Key routes:
+- `GET /api/dashboard`
+- `GET /api/candidates?limit=10`
+- `GET/POST /api/config`
+- `POST /api/cycles/manage`
+- `POST /api/cycles/screen`
+- `POST /api/actions/deploy|close|claim|swap`
+- `GET /api/jobs`, `GET /api/events`
+- `GET /api/lessons`, `GET /api/logs`
+- `GET /api/pool-memory?pool=<address>`
+- `GET/POST/DELETE /api/blacklist`
+
 ### Autonomous agent
 
 ```bash
@@ -392,7 +436,8 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 | `timeframe` | `5m` | Candle timeframe for screening |
 | `category` | `trending` | Pool category filter |
 | `minTokenFeesSol` | `30` | Minimum all-time fees in SOL |
-| `maxBundlersPct` | `30` | Maximum bundler % in top 100 holders |
+| `maxBundlePct` | `30` | Maximum bundler % in top 100 holders |
+| `maxBotHoldersPct` | `30` | Maximum bot-holder % from Jupiter audit |
 | `maxTop10Pct` | `60` | Maximum top-10 holder concentration |
 | `blockedLaunchpads` | `[]` | Launchpad names to never deploy into |
 

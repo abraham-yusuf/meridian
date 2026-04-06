@@ -78,10 +78,13 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | timeframe | screening | "5m" |
 | category | screening | "trending" |
 | minTokenFeesSol | screening | 30 |
-| maxBundlersPct | screening | 30 |
+| maxBundlePct | screening | 30 |
+| maxBotHoldersPct | screening | 30 |
 | maxTop10Pct | screening | 60 |
 | blockedLaunchpads | screening | [] |
 | deployAmountSol | management | 0.5 |
+| minClaimAmount | management | 5 |
+| stopLossPct | management | -50 |
 | maxDeployAmount | risk | 50 |
 | maxPositions | risk | 3 |
 | gasReserve | management | 0.2 |
@@ -158,7 +161,7 @@ Two signals used in `getTokenHolders()`:
 - `common_funder` — multiple wallets funded by same source
 - `funded_same_window` — multiple wallets funded in same time window
 
-**Thresholds in config**: `maxBundlersPct` (default 30%), `maxTop10Pct` (default 60%)
+**Thresholds in config**: `maxBundlePct` (default 30%), `maxBotHoldersPct` (default 30%), `maxTop10Pct` (default 60%)
 Jupiter audit API: `botHoldersPercentage` (5–25% is normal for legitimate tokens)
 
 ---

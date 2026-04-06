@@ -13,7 +13,10 @@
     "dev": "DRY_RUN=true node index.js",
     "test:screen": "node test/test-screening.js",
     "test:agent": "DRY_RUN=true node test/test-agent.js",
-    "postinstall": "node scripts/patch-anchor.js"
+    "postinstall": "node scripts/patch-anchor.js",
+    "web:dev": "next dev",
+    "web:build": "next build",
+    "web:start": "next start"
   },
   "dependencies": {
     "@meteora-ag/dlmm": "1.9.4",
@@ -24,9 +27,13 @@
     "dotenv": "^17.3.1",
     "node-cron": "^3.0.3",
     "jsonrepair": "^3.13.3",
-    "openai": "^4.73.0"
+    "openai": "^4.73.0",
+    "next": "16.2.2",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "zod": "3.25.76"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.9.0"
   }
 }
